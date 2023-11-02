@@ -1,0 +1,59 @@
+import spacy
+import numpy as np
+from keras.models import Sequential
+from keras.layers import Dense, Embedding, Lambda
+from keras.preprocessing.text import Tokenizer
+from keras.utils import to_categorical
+from keras_preprocessing.sequence import make_sampling_table
+from keras.preprocessing.sequence import skipgrams
+
+# Load spaCy language model
+nlp = spacy.load('en_core_web_sm')
+
+# Define some example text data
+text = "Continuous Bag Of Words (CBOW) is a word embedding model used in NLP."
+
+# Preprocess the text
+doc = nlp(text)
+sentences = [str(sentence) for sentence in doc.sents]
+
+# Tokenize the text
+tokenizer = Tokenizer()
+tokenizer.fit_on_texts(sentences)
+total_words = len(tokenizer.word_index) + 1
+
+# Generate word pairs using skipgrams
+sampling_table = make_sampling_table(total_words)
+couples, labels = skipgrams(tokenizer.texts_to_sequences(sentences), vocabulary_size=total_words, window_size=1, sampling_table=sampling_table)
+
+word_target, word_context = zip(*couples)
+
+# Create the CBOW model
+model = Sequential()
+model.add(Embedding(input_dim=total_words, output_dim=100, input_length=1))
+model.add(Lambda(lambda x: np.mean(x, axis=1), output_shape=(100,)))
+model.add(Dense(total_words, activation='softmax'))
+
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+
+# Prepare data for training
+word_target = np.array(word_target, dtype="int32")
+word_context = np.array(word_context, dtype="int32")
+labels = np.array(labels, dtype="int32")
+
+word_target = word_target.reshape((len(word_target), 1))
+word_context = word_context.reshape((len(word_context), 1))
+
+# Convert labels to one-hot vectors
+labels = to_categorical(labels, total_words)
+
+# Train the model
+model.fit([word_target, word_context], labels, epochs=10, batch_size=64)
+
+# Get the word embeddings
+word_embeddings = model.layers[0].get_weights()[0]
+
+# Now, you can access the word embeddings for each word in the vocabulary using the word_index from the tokenizer
+word_index = tokenizer.word_index
+for word, i in word_index.items():
+    print(f"{word}: {word_embeddings[i]}")
